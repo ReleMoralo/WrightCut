@@ -1,0 +1,1 @@
+Wright Cut is a Kotlin/XML source project for Android Studio Koala. No C# or ASP.NET code is included. The Kotlin endpoint contract is ready to connect to your chosen REST service; configure production authentication, database, Firebase, and cloud image storage before deployment.
