@@ -12,7 +12,20 @@
           "package_name": "za.co.wrightcut"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "433121581963-hh9ulhgsp20uplviu9o5bvs7idqqqpth.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "za.co.wrightcut",
+            "certificate_hash": "c65e5b2712d5c93e00d233f9e9e213cbc10a9c11"
+          }
+        },
+        {
+          "client_id": "433121581963-copegrdohf4vn7o04aae94r99qsisrnh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCEm-nDTCteJwwvTrbJYkSAwOuiq8puKWY"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "433121581963-copegrdohf4vn7o04aae94r99qsisrnh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

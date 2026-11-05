@@ -17,63 +17,110 @@ import za.co.wrightcut.data.model.UpdateBookingRequest
 import za.co.wrightcut.data.model.UpdateUserRequest
 import za.co.wrightcut.data.network.ApiClient
 import za.co.wrightcut.data.network.AuthTokenManager
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
+import com.google.firebase.firestore.FirebaseFirestore
+import za.co.wrightcut.data.network.FirestoreRestClient
+import com.google.gson.JsonObject
+import com.google.firebase.auth.GoogleAuthProvider
+
+
 
 class WrightCutRepository(context: Context) {
     private val db = WrightCutDatabase.getDatabase(context)
     private val api = ApiClient.getApiService(context)
     private val tokenManager = AuthTokenManager(context)
 
+    //Firebase authentication
+
+    private val firebaseAuth = FirebaseAuth.getInstance()
+
+    private val firestore = FirebaseFirestore.getInstance()
+
     // AUTH
 
-    suspend fun login(email: String, pass: String): Result<AuthResponse> =
-        withContext(Dispatchers.IO) {
-            try {
-                val response = api.login(LoginRequest(email, pass))
 
-                if (response.isSuccessful && response.body() != null) {
-                    val body = response.body()!!
+    suspend fun login(
+        email: String,
+        pass: String
+    ): Result<AuthResponse> = withContext(Dispatchers.IO) {
 
-                    val token = body.token
+        try {
+            // Authenticate the customer using Firebase
+            val authResult = firebaseAuth
+                .signInWithEmailAndPassword(email.trim(), pass)
+                .await()
 
-                    if (token.isNullOrBlank()) {
-                        return@withContext Result.failure(
-                            Exception("Login failed: No authentication token received")
-                        )
-                    }
+            val user = authResult.user
+                ?: return@withContext Result.failure(
+                    Exception("Login failed: Firebase user not found")
+                )
 
-                    val fullName = body.fullName ?: email.substringBefore("@")
+            val uid = user.uid
 
-                    tokenManager.saveToken(token)
-                    tokenManager.saveUser(email, fullName)
+            // Retrieve the customer's profile from Firestore
+            val document = firestore.collection("customers")
+                .document(uid)
+                .get()
+                .await()
 
-                    db.userDao().insertUserProfile(
-                        UserProfileEntity(
-                            1,
-                            fullName,
-                            email,
-                            "071 234 5678",
-                            "English"
-                        )
-                    )
-
-                    Result.success(body)
-
-                } else {
-                    Result.failure(
-                        Exception("Login failed. Check your email and password.")
-                    )
-                }
-
-            } catch (e: Exception) {
-                Result.failure(
-                    Exception("Unable to connect to the server: ${e.message}", e)
+            if (!document.exists()) {
+                firebaseAuth.signOut()
+                return@withContext Result.failure(
+                    Exception("Customer profile not found")
                 )
             }
+
+            val fullName = document.getString("fullName")
+                ?: email.substringBefore("@")
+
+            val phone = document.getString("phone") ?: ""
+            val language = document.getString("language") ?: "English"
+
+            // Retrieve a valid Firebase ID token
+            val idToken = user.getIdToken(false).await().token
+                ?: return@withContext Result.failure(
+                    Exception("Unable to retrieve Firebase token")
+                )
+
+            // Save the login information locally
+            tokenManager.saveToken(idToken)
+            tokenManager.saveUser(email.trim(), fullName)
+
+            // Update the local customer profile
+            db.userDao().insertUserProfile(
+                UserProfileEntity(
+                    1,
+                    fullName,
+                    email.trim(),
+                    phone,
+                    language
+                )
+            )
+
+            Result.success(
+                AuthResponse(
+                    idToken,
+                    1,
+                    fullName,
+                    email.trim()
+                )
+            )
+
+        } catch (e: Exception) {
+            Result.failure(
+                Exception(
+                    e.localizedMessage ?: "Login failed. Check your credentials.",
+                    e
+                )
+            )
         }
+    }
 
 
 
     // Replaced the whole register code to this code
+
     suspend fun register(
         fullName: String,
         email: String,
@@ -83,54 +130,71 @@ class WrightCutRepository(context: Context) {
     ): Result<AuthResponse> = withContext(Dispatchers.IO) {
 
         try {
-            val response = api.register(
-                RegisterRequest(fullName, email, phone, pass, lang)
+            // Create the customer account in Firebase Authentication
+            val authResult = firebaseAuth
+                .createUserWithEmailAndPassword(email.trim(), pass)
+                .await()
+
+            val user = authResult.user
+                ?: return@withContext Result.failure(
+                    Exception("Firebase did not return a user")
+                )
+
+            val uid = user.uid
+
+            // Store the customer's profile in Firestore
+            val customerProfile = hashMapOf(
+                "uid" to uid,
+                "fullName" to fullName,
+                "email" to email.trim(),
+                "phone" to phone,
+                "language" to lang
             )
 
-            if (response.isSuccessful && response.body() != null) {
+            firestore.collection("customers")
+                .document(uid)
+                .set(customerProfile)
+                .await()
 
-                val body = response.body()!!
-
-                val token = body.token
-
-                if (token.isNullOrBlank()) {
-                    return@withContext Result.failure(
-                        Exception("Registration failed: No authentication token received")
-                    )
-                }
-
-                tokenManager.saveToken(token)
-                tokenManager.saveUser(email, fullName)
-
-                db.userDao().insertUserProfile(
-                    UserProfileEntity(
-                        1,
-                        fullName,
-                        email,
-                        phone,
-                        lang
-                    )
+            // Obtain a real Firebase ID token
+            val idToken = user.getIdToken(false).await().token
+                ?: return@withContext Result.failure(
+                    Exception("Unable to retrieve Firebase token")
                 )
 
-                Result.success(body)
+            tokenManager.saveToken(idToken)
+            tokenManager.saveUser(email.trim(), fullName)
 
-            } else {
-                Result.failure(
-                    Exception(
-                        "Registration failed. Server returned ${response.code()}"
-                    )
+            // Keep the customer's profile available locally
+            db.userDao().insertUserProfile(
+                UserProfileEntity(
+                    1,
+                    fullName,
+                    email.trim(),
+                    phone,
+                    lang
                 )
-            }
+            )
+
+            Result.success(
+                AuthResponse(
+                    idToken,
+                    1,
+                    fullName,
+                    email.trim()
+                )
+            )
 
         } catch (e: Exception) {
             Result.failure(
                 Exception(
-                    "Registration could not be completed: ${e.message}",
+                    e.localizedMessage ?: "Registration failed",
                     e
                 )
             )
         }
     }
+
 
 
     // SERVICES
@@ -272,4 +336,108 @@ class WrightCutRepository(context: Context) {
             api.updateUserProfile(UpdateUserRequest(fullName, lang, notifications))
         } catch (_: Exception) {}
     }
+
+
+    suspend fun getCustomerProfileViaRest(): Result<JsonObject> =
+        withContext(Dispatchers.IO) {
+            try {
+                val user = firebaseAuth.currentUser
+                    ?: return@withContext Result.failure(
+                        Exception("Please log in first")
+                    )
+
+                val idToken = user.getIdToken(false).await().token
+                    ?: return@withContext Result.failure(
+                        Exception("Unable to get Firebase ID token")
+                    )
+
+                val response = FirestoreRestClient.api.getCustomerProfile(
+                    authorization = "Bearer $idToken",
+                    userId = user.uid
+                )
+
+                if (response.isSuccessful && response.body() != null) {
+                    Result.success(response.body()!!)
+                } else {
+                    Result.failure(
+                        Exception(
+                            "REST API request failed: HTTP ${response.code()}"
+                        )
+                    )
+                }
+
+            } catch (e: Exception) {
+                Result.failure(
+                    Exception(
+                        "REST API error: ${e.localizedMessage}",
+                        e
+                    )
+                )
+            }
+        }
+
+    suspend fun loginWithGoogle(idToken: String): Result<AuthResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val authResult = firebaseAuth.signInWithCredential(credential).await()
+
+                val user = authResult.user
+                    ?: return@withContext Result.failure(
+                        Exception("Google authentication failed")
+                    )
+
+                val uid = user.uid
+                val email = user.email ?: ""
+                val fullName = user.displayName ?: email.substringBefore("@")
+
+                val profileRef = firestore.collection("customers").document(uid)
+                val existingProfile = profileRef.get().await()
+
+                if (!existingProfile.exists()) {
+                    val profile = hashMapOf(
+                        "uid" to uid,
+                        "fullName" to fullName,
+                        "email" to email,
+                        "phone" to "",
+                        "language" to "English"
+                    )
+
+                    profileRef.set(profile).await()
+                }
+
+                val savedProfile = profileRef.get().await()
+                val savedName = savedProfile.getString("fullName") ?: fullName
+                val savedPhone = savedProfile.getString("phone") ?: ""
+                val savedLanguage = savedProfile.getString("language") ?: "English"
+
+                val firebaseToken = user.getIdToken(false).await().token
+                    ?: return@withContext Result.failure(
+                        Exception("Unable to retrieve Firebase token")
+                    )
+
+                tokenManager.saveToken(firebaseToken)
+                tokenManager.saveUser(email, savedName)
+
+                db.userDao().insertUserProfile(
+                    UserProfileEntity(
+                        1,
+                        savedName,
+                        email,
+                        savedPhone,
+                        savedLanguage
+                    )
+                )
+
+                Result.success(
+                    AuthResponse(firebaseToken, 1, savedName, email)
+                )
+
+            } catch (e: Exception) {
+                Result.failure(
+                    Exception(e.localizedMessage ?: "Google sign-in failed", e)
+                )
+            }
+        }
+
 }

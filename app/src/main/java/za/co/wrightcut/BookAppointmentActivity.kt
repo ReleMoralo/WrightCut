@@ -15,6 +15,11 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import za.co.wrightcut.data.local.ServiceEntity
 import za.co.wrightcut.data.repository.WrightCutRepository
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+
+//Added three new imports to support current date
 
 class BookAppointmentActivity : AppCompatActivity() {
     private lateinit var repository: WrightCutRepository
@@ -22,8 +27,17 @@ class BookAppointmentActivity : AppCompatActivity() {
     private var selectedBarberId = 1
     private var selectedServiceId = 1
     private var selectedServicePrice = 100.0
-    private var selectedDate = "2026-07-18"
-    private var selectedTime = "12:00"
+    //private var selectedDate = "2026-07-18"
+    //private var selectedTime = "12:00"
+
+    //Replaced the hard coded dates with this.
+    private var selectedDate = ""
+    private var selectedTime = ""
+    private val displayedDates = mutableListOf<String>()
+    private val availableTimes = listOf(
+        "09:00", "10:30", "12:00",
+        "13:30", "14:30", "15:00"
+    )
 
     private var availableServices: List<ServiceEntity> = emptyList()
 
@@ -84,27 +98,72 @@ class BookAppointmentActivity : AppCompatActivity() {
         }
 
         // Setup Date selection
+        //dateViews.forEachIndexed { index, view ->
+           // view.setOnClickListener {
+                //selectedDate = when (index) {
+                    //0 -> "2026-07-08"
+                    //1 -> "2026-07-09"
+                    //2 -> "2026-07-10"
+                    //3 -> "2026-07-11"
+                    //4 -> "2026-07-12"
+                    //else -> "2026-07-13"
+                //}
+                //updateDateUi(view)
+            //}
+        //}
+
+        // Setup Time selection
+        //timeViews.forEach { view ->
+            //view.setOnClickListener {
+                //selectedTime = view.text.toString()
+                //updateTimeUi(view)
+           // }
+        //}
+
+        // This will generate six dates starting from today.
+
+        // Generate six dates starting from today
+        val today = Calendar.getInstance()
+        val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val displayFormatter = SimpleDateFormat("EEE\ndd MMM", Locale.ENGLISH)
+
         dateViews.forEachIndexed { index, view ->
+            val date = (today.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_YEAR, index)
+            }
+
+            val formattedDate = dateFormatter.format(date.time)
+            displayedDates.add(formattedDate)
+
+            view.text = displayFormatter.format(date.time)
+
             view.setOnClickListener {
-                selectedDate = when (index) {
-                    0 -> "2026-07-08"
-                    1 -> "2026-07-09"
-                    2 -> "2026-07-10"
-                    3 -> "2026-07-11"
-                    4 -> "2026-07-12"
-                    else -> "2026-07-13"
-                }
+                selectedDate = formattedDate
+                selectedTime = ""
+
                 updateDateUi(view)
+                refreshTimeAvailability()
             }
         }
 
-        // Setup Time selection
-        timeViews.forEach { view ->
+        // Set today as the initial booking date
+        selectedDate = displayedDates.first()
+        updateDateUi(dateViews.first())
+
+        // Set up appointment time buttons
+        timeViews.forEachIndexed { index, view ->
+            view.text = availableTimes[index]
+
             view.setOnClickListener {
-                selectedTime = view.text.toString()
-                updateTimeUi(view)
+                if (view.isEnabled) {
+                    selectedTime = availableTimes[index]
+                    updateTimeUi(view)
+                }
             }
         }
+
+        refreshTimeAvailability()
+
 
         // Load Services into Spinner
         lifecycleScope.launch {
@@ -136,6 +195,36 @@ class BookAppointmentActivity : AppCompatActivity() {
         }
 
         confirmBtn.setOnClickListener {
+
+            if (selectedTime.isBlank()) {
+                Toast.makeText(
+                    this,
+                    "Please select an available appointment time",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
+
+            val dateTimeFormat = SimpleDateFormat(
+                "yyyy-MM-dd HH:mm",
+                Locale.US
+            )
+            dateTimeFormat.isLenient = false
+
+            val appointment = dateTimeFormat.parse(
+                "$selectedDate $selectedTime"
+            )
+
+            if (appointment == null || !appointment.after(java.util.Date())) {
+                Toast.makeText(
+                    this,
+                    "Please choose a future appointment time",
+                    Toast.LENGTH_SHORT
+                ).show()
+                refreshTimeAvailability()
+                return@setOnClickListener
+            }
+
             lifecycleScope.launch {
                 val result = repository.createBooking(
                     barberId = selectedBarberId,
@@ -184,6 +273,39 @@ class BookAppointmentActivity : AppCompatActivity() {
         }
         selectedView.setBackgroundResource(R.drawable.bg_gold_button)
         selectedView.setTextColor(resources.getColor(R.color.bg_dark, theme))
+    }
+
+    //New Function Added
+
+
+    private fun refreshTimeAvailability() {
+        val now = Calendar.getInstance()
+
+        val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val today = dateFormatter.format(now.time)
+
+        timeViews.forEachIndexed { index, view ->
+            val time = availableTimes[index]
+
+            val parts = time.split(":")
+            val hour = parts[0].toInt()
+            val minute = parts[1].toInt()
+
+            val isPastTime = selectedDate == today &&
+                    (hour < now.get(Calendar.HOUR_OF_DAY) ||
+                            (hour == now.get(Calendar.HOUR_OF_DAY) &&
+                                    minute <= now.get(Calendar.MINUTE)))
+
+            view.isEnabled = !isPastTime
+            view.alpha = if (isPastTime) 0.35f else 1.0f
+
+            view.setBackgroundResource(R.drawable.bg_dark_card)
+            view.setTextColor(
+                resources.getColor(R.color.text_primary, theme)
+            )
+        }
+
+        selectedTime = ""
     }
 
     private fun updateConfirmButton() {
