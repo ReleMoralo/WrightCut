@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "433121581963",
+    "project_id": "wrightcutbarbershop",
+    "storage_bucket": "wrightcutbarbershop.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:433121581963:android:549efddc54485738602d8e",
+        "android_client_info": {
+          "package_name": "za.co.wrightcut"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEm-nDTCteJwwvTrbJYkSAwOuiq8puKWY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

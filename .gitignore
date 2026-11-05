@@ -1,0 +1,8 @@
+
+# Android local files
+local.properties
+.gradle/
+**/build/
+.idea/
+*.jks
+*.keystore
